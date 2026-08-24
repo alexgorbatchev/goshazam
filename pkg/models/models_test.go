@@ -45,6 +45,17 @@ func TestTrackInfoUnmarshaling(t *testing.T) {
 			],
 			"hub": {
 				"type": "APPLEMUSIC",
+				"actions": [
+					{"name": "play", "type": "applemusicplay"},
+					{"name": "ringtone", "type": "ringtone", "uri": "https://example.com/ringtone.m4r"}
+				],
+				"options": [
+					{
+						"actions": [
+							{"name": "applemusic", "type": "applemusicopen", "uri": "https://music.apple.com/us/album/song/123?i=456&app=music"}
+						]
+					}
+				],
 				"providers": [
 					{
 						"actions": [
@@ -52,6 +63,11 @@ func TestTrackInfoUnmarshaling(t *testing.T) {
 								"name": "hub:spotify:searchdeeplink",
 								"type": "uri",
 								"uri": "spotify:search:Arrival%20To%20Earth%20Steve%20Jablonsky"
+							},
+							{
+								"name": "spotify:web",
+								"type": "uri",
+								"uri": "https://open.spotify.com/track/123"
 							}
 						],
 						"type": "SPOTIFY"
@@ -93,8 +109,17 @@ func TestTrackInfoUnmarshaling(t *testing.T) {
 	if track.SpotifyURIQuery != "Arrival%20To%20Earth%20Steve%20Jablonsky" {
 		t.Errorf("expected spotify query Arrival%%20To%%20Earth%%20Steve%%20Jablonsky, got %s", track.SpotifyURIQuery)
 	}
+	if track.SpotifyURL != "https://open.spotify.com/track/123" {
+		t.Errorf("expected spotify URL, got %s", track.SpotifyURL)
+	}
 	if track.YouTubeLink != "https://cdn.shazam.com/video/youtube" {
 		t.Errorf("expected youtube link https://cdn.shazam.com/video/youtube, got %s", track.YouTubeLink)
+	}
+	if track.Ringtone != "https://example.com/ringtone.m4r" {
+		t.Errorf("expected ringtone, got %s", track.Ringtone)
+	}
+	if track.AppleMusicURL != "https://music.apple.com/us/album/song/123?i=456" {
+		t.Errorf("expected apple music URL with ?i=456, got %s", track.AppleMusicURL)
 	}
 }
 
@@ -116,5 +141,22 @@ func TestArtistQueryParams(t *testing.T) {
 	}
 	if params["extend"] != "artistBio,bornOrFormed" {
 		t.Errorf("expected extend artistBio,bornOrFormed, got %s", params["extend"])
+	}
+
+	var nilQuery *ArtistQuery
+	if len(nilQuery.Params()) != 0 {
+		t.Errorf("expected empty params for nil query")
+	}
+}
+
+func TestErrors(t *testing.T) {
+	err1 := &APIError{StatusCode: 400, Status: "Bad Request", Message: "invalid param"}
+	if err1.Error() != "shazam api error (status 400): invalid param" {
+		t.Errorf("expected message format, got %s", err1.Error())
+	}
+
+	err2 := &APIError{StatusCode: 500, Status: "Internal Server Error", Body: "server error"}
+	if err2.Error() != "shazam api error (status 500): server error" {
+		t.Errorf("expected body format, got %s", err2.Error())
 	}
 }

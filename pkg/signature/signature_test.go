@@ -2,6 +2,7 @@ package signature
 
 import (
 	"encoding/binary"
+	"math"
 	"testing"
 )
 
@@ -92,5 +93,87 @@ func TestSignatureCorruptedCRC(t *testing.T) {
 	_, err := DecodeFromBinary(bin)
 	if err == nil {
 		t.Fatalf("expected CRC error on corrupted data, got nil")
+	}
+}
+
+func TestFrequencyPeakMethods(t *testing.T) {
+	p := FrequencyPeak{
+		FFTPassNumber:             100,
+		PeakMagnitude:             8000,
+		CorrectedPeakFrequencyBin: 640,
+		SampleRateHz:              16000,
+	}
+
+	freq := p.FrequencyHz()
+	// freq = 640 * (16000 / 2 / 1024 / 64) = 640 * 0.1220703125 = 78.125 Hz
+	if math.Abs(freq-78.125) > 0.001 {
+		t.Errorf("expected frequency 78.125, got %f", freq)
+	}
+
+	amp := p.AmplitudePCM()
+	if amp <= 0 {
+		t.Errorf("expected positive amplitude, got %f", amp)
+	}
+
+	secs := p.Seconds()
+	// secs = 100 * 128 / 16000 = 0.8s
+	if math.Abs(secs-0.8) > 0.001 {
+		t.Errorf("expected seconds 0.8, got %f", secs)
+	}
+
+	// Test zero sample rate defaults
+	pZero := FrequencyPeak{FFTPassNumber: 100, CorrectedPeakFrequencyBin: 640}
+	if pZero.FrequencyHz() <= 0 || pZero.Seconds() <= 0 {
+		t.Errorf("expected valid non-zero results with zero sample rate fallback")
+	}
+}
+
+func TestSampleRateEnums(t *testing.T) {
+	rates := []int{8000, 11025, 16000, 32000, 44100, 48000}
+	for _, r := range rates {
+		enum, ok := SampleRateFromHz(r)
+		if !ok {
+			t.Errorf("expected ok for %d Hz", r)
+		}
+		if enum.Hz() != r {
+			t.Errorf("expected %d Hz from enum, got %d", r, enum.Hz())
+		}
+	}
+
+	// Invalid rate fallback
+	fallback, ok := SampleRateFromHz(99999)
+	if ok || fallback != SampleRate16000 {
+		t.Errorf("expected fallback to 16000 for invalid rate")
+	}
+
+	invalidEnum := SampleRate(999)
+	if invalidEnum.Hz() != 16000 {
+		t.Errorf("expected invalid enum Hz() to fallback to 16000")
+	}
+}
+
+func TestDecodedMessageDuration(t *testing.T) {
+	msg := NewDecodedMessage()
+	msg.SampleRateHz = 16000
+	msg.NumberSamples = 32000
+	if msg.DurationSeconds() != 2.0 {
+		t.Errorf("expected duration 2.0s, got %f", msg.DurationSeconds())
+	}
+
+	msgZero := &DecodedMessage{}
+	if msgZero.DurationSeconds() != 0 {
+		t.Errorf("expected 0 duration for zero sample rate")
+	}
+}
+
+func TestDecodeErrors(t *testing.T) {
+	// Too short
+	if _, err := DecodeFromBinary([]byte{1, 2, 3}); err == nil {
+		t.Errorf("expected error for short data")
+	}
+
+	// Invalid base64 URI
+	if _, err := DecodeFromURI("data:audio/vnd.shazam.sig;base64,!!!invalid!!!"); err == nil {
+		t.Errorf("expected error for invalid base64 URI")
 	}
 }

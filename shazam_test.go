@@ -3,11 +3,14 @@ package goshazam
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +19,81 @@ import (
 	"github.com/alexgorbatchev/goshazam/pkg/models"
 	"github.com/alexgorbatchev/goshazam/pkg/signature"
 )
+
+func createSimpleWAV(numSamples int) []byte {
+	var buf bytes.Buffer
+	dataSize := numSamples * 2
+	chunkSize := 36 + dataSize
+
+	buf.WriteString("RIFF")
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(chunkSize))
+	buf.WriteString("WAVE")
+
+	buf.WriteString("fmt ")
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(16))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(16000))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(32000))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(2))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(16))
+
+	buf.WriteString("data")
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(dataSize))
+	for range numSamples {
+		_ = binary.Write(&buf, binary.LittleEndian, int16(1000))
+	}
+	return buf.Bytes()
+}
+
+type rewriteTransport struct {
+	target    *url.URL
+	transport http.RoundTripper
+}
+
+func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.URL.Scheme = t.target.Scheme
+	req.URL.Host = t.target.Host
+	return t.transport.RoundTrip(req)
+}
+
+const mockLocationsJSON = `{
+	"countries": [
+		{
+			"id": "US",
+			"listid": "pl.us-top-200",
+			"name": "United States",
+			"cities": [
+				{
+					"id": "1",
+					"listid": "pl.us-nyc-50",
+					"name": "New York"
+				}
+			],
+			"genres": [
+				{
+					"id": "1",
+					"listid": "pl.us-pop",
+					"name": "Pop",
+					"urlName": "pop"
+				}
+			]
+		}
+	],
+	"global": {
+		"top": {
+			"listid": "pl.global-top-200"
+		},
+		"genres": [
+			{
+				"id": "1",
+				"listid": "pl.global-rock",
+				"name": "Rock",
+				"urlName": "rock"
+			}
+		]
+	}
+}`
 
 func TestShazamMockRecognize(t *testing.T) {
 	mockResponse := `{
@@ -127,60 +205,170 @@ func TestShazamLiveRelatedTracks(t *testing.T) {
 	}
 }
 
-func TestShazamAPIMethodsMock(t *testing.T) {
+func TestShazamAllMethodsMock(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/artist":
-			_, _ = w.Write([]byte(`{"data": [{"id": "123", "type": "artists"}]}`))
-		case "/albums":
-			_, _ = w.Write([]byte(`{"data": [{"id": "alb-1", "type": "albums"}]}`))
-		case "/album-info":
-			_, _ = w.Write([]byte(`{"data": [{"id": "alb-1", "type": "albums", "attributes": {"name": "Album 1", "copyright": "2024", "genreNames": ["Pop"], "releaseDate": "2024", "isMasteredForItunes": true, "upc": "1", "artwork": {"hasP3": false}, "playParams": {"id": "1", "kind": "album"}, "url": "https://example.com", "recordLabel": "L", "trackCount": 10, "isCompilation": false, "isPrerelease": false, "audioTraits": [], "isSingle": false, "artistName": "A", "isComplete": true}}]}`))
-		case "/track":
-			_, _ = w.Write([]byte(`{"key": "53982678", "title": "Song Title", "subtitle": "Artist"}`))
-		case "/count":
-			_, _ = w.Write([]byte(`{"count": 42000}`))
-		case "/count-many":
-			_, _ = w.Write([]byte(`[{"id": 1, "count": 100}, {"id": 2, "count": 200}]`))
-		case "/search":
-			_, _ = w.Write([]byte(`{"results": []}`))
-		case "/youtube":
-			_, _ = w.Write([]byte(`{"caption": "Official Video", "uri": "https://youtube.com/watch?v=123"}`))
-		default:
+		path := r.URL.Path
+
+		switch {
+		case strings.Contains(path, "locations"):
+			_, _ = w.Write([]byte(mockLocationsJSON))
+		case strings.Contains(path, "playlists"):
+			_, _ = w.Write([]byte(`{"data": [{"id": "track-1", "type": "songs", "attributes": {"name": "Hit Song", "albumName": "Hit Album", "genreNames": ["Pop"], "isrc": "US123", "artwork": {"hasP3": false}, "audioLocale": "en", "url": "https://example.com", "artistName": "Star"}}]}`))
+		case strings.Contains(path, "artists") && strings.Contains(path, "albums"):
+			_, _ = w.Write([]byte(`{"data": [{"id": "alb-1", "type": "albums", "attributes": {"name": "Album 1", "copyright": "2024", "genreNames": ["Pop"], "releaseDate": "2024-01-01", "isMasteredForItunes": true, "upc": "123", "artwork": {"hasP3": false}, "playParams": {"id": "1", "kind": "album"}, "url": "https://example.com", "recordLabel": "Label", "trackCount": 10, "isCompilation": false, "isPrerelease": false, "audioTraits": [], "isSingle": false, "artistName": "Artist", "isComplete": true}}]}`))
+		case strings.Contains(path, "artists"):
+			_, _ = w.Write([]byte(`{"data": [{"id": "art-1", "type": "artists", "attributes": {"name": "Artist Name", "url": "https://example.com"}}]}`))
+		case strings.Contains(path, "albums/9999"):
 			_, _ = w.Write([]byte(`{"data": []}`))
+		case strings.Contains(path, "albums"):
+			_, _ = w.Write([]byte(`{"data": [{"id": "alb-1", "type": "albums", "attributes": {"name": "Album Info", "copyright": "2024", "genreNames": ["Rock"], "releaseDate": "2024-01-01", "isMasteredForItunes": true, "upc": "123", "artwork": {"hasP3": false}, "playParams": {"id": "1", "kind": "album"}, "url": "https://example.com", "recordLabel": "Label", "trackCount": 10, "isCompilation": false, "isPrerelease": false, "audioTraits": [], "isSingle": false, "artistName": "Artist", "isComplete": true}}]}`))
+		case strings.Contains(path, "track-similarities"):
+			_, _ = w.Write([]byte(`{"tracks": [{"key": "100", "title": "Similar Track"}]}`))
+		case strings.Contains(path, "count/v2/web/track/"):
+			_, _ = w.Write([]byte(`{"count": 50000}`))
+		case strings.Contains(path, "count/v2/web/track"):
+			_, _ = w.Write([]byte(`[{"id": 123, "count": 1000}, {"id": 456, "count": 2000}]`))
+		case strings.Contains(path, "track/"):
+			_, _ = w.Write([]byte(`{"key": "12345", "title": "Track Title", "subtitle": "Artist"}`))
+		case strings.Contains(path, "search"):
+			_, _ = w.Write([]byte(`{"results": [{"name": "Found"}]}`))
+		case strings.Contains(path, "youtube"):
+			_, _ = w.Write([]byte(`{"caption": "Music Video", "uri": "https://youtube.com/watch?v=abc"}`))
+		default:
+			_, _ = w.Write([]byte(`{"status": "ok"}`))
 		}
 	}))
 	defer server.Close()
 
-	c := client.NewHTTPClient(client.WithHTTPClient(server.Client()))
+	serverURL, _ := url.Parse(server.URL)
+	httpClient := &http.Client{
+		Transport: &rewriteTransport{
+			target:    serverURL,
+			transport: server.Client().Transport,
+		},
+	}
+
+	c := client.NewHTTPClient(client.WithHTTPClient(httpClient))
 	s := New(WithHTTPClient(c))
+	s.GeoService().SetLocationsURL(server.URL + "/locations")
 	ctx := context.Background()
 
+	// TopWorldTracks
+	topWorld, err := s.TopWorldTracks(ctx, 10, 0)
+	if err != nil || len(topWorld.Data) == 0 {
+		t.Fatalf("TopWorldTracks failed: %v", err)
+	}
+
+	// TopCountryTracks
+	topCountry, err := s.TopCountryTracks(ctx, "US", 10, 0)
+	if err != nil || len(topCountry.Data) == 0 {
+		t.Fatalf("TopCountryTracks failed: %v", err)
+	}
+
+	// TopCityTracks
+	topCity, err := s.TopCityTracks(ctx, "US", "New York", 10, 0)
+	if err != nil || len(topCity.Data) == 0 {
+		t.Fatalf("TopCityTracks failed: %v", err)
+	}
+
+	// TopWorldGenreTracks
+	topGenre, err := s.TopWorldGenreTracks(ctx, models.GenreRock, 10, 0)
+	if err != nil || len(topGenre.Data) == 0 {
+		t.Fatalf("TopWorldGenreTracks failed: %v", err)
+	}
+
+	// TopCountryGenreTracks
+	topCountryGenre, err := s.TopCountryGenreTracks(ctx, "US", models.GenrePop, 10, 0)
+	if err != nil || len(topCountryGenre.Data) == 0 {
+		t.Fatalf("TopCountryGenreTracks failed: %v", err)
+	}
+
+	// ArtistAbout
+	artistResp, err := s.ArtistAbout(ctx, 123, &models.ArtistQuery{
+		Views:  []models.ArtistView{models.ArtistViewFullAlbums},
+		Extend: []models.ArtistExtend{models.ArtistExtendBio},
+	})
+	if err != nil || len(artistResp.Data) == 0 {
+		t.Fatalf("ArtistAbout failed: %v", err)
+	}
+
+	// ArtistAlbums
+	albumsResp, err := s.ArtistAlbums(ctx, 123, 10, 0)
+	if err != nil || len(albumsResp.Data) == 0 {
+		t.Fatalf("ArtistAlbums failed: %v", err)
+	}
+
+	// SearchAlbum
+	albumModel, err := s.SearchAlbum(ctx, 123)
+	if err != nil || albumModel.ID != "alb-1" {
+		t.Fatalf("SearchAlbum failed: %v", err)
+	}
+
+	// SearchAlbum not found error
+	if _, err := s.SearchAlbum(ctx, 9999); err == nil {
+		t.Errorf("expected error for empty album data")
+	}
+
 	// TrackAbout
-	var track models.TrackInfo
-	err := s.httpClient.RequestJSON(ctx, "GET", server.URL+"/track", nil, nil, &track)
-	if err != nil || track.Key != "53982678" {
-		t.Errorf("TrackAbout mock failed: %v, got %+v", err, track)
+	trackInfo, err := s.TrackAbout(ctx, 12345)
+	if err != nil || trackInfo.Key != "12345" {
+		t.Fatalf("TrackAbout failed: %v", err)
+	}
+
+	// RelatedTracks
+	related, err := s.RelatedTracks(ctx, 12345, 10, 0)
+	if err != nil || len(related) == 0 {
+		t.Fatalf("RelatedTracks failed: %v", err)
+	}
+
+	// SearchArtist
+	searchArt, err := s.SearchArtist(ctx, "Artist", 10, 0)
+	if err != nil || len(searchArt) == 0 {
+		t.Fatalf("SearchArtist failed: %v", err)
+	}
+
+	// SearchTrack
+	searchTrk, err := s.SearchTrack(ctx, "Track", 10, 0)
+	if err != nil || len(searchTrk) == 0 {
+		t.Fatalf("SearchTrack failed: %v", err)
 	}
 
 	// ListeningCounter
-	count, err := s.httpClient.Request(ctx, "GET", server.URL+"/count", nil, nil)
-	if err != nil || len(count) == 0 {
-		t.Errorf("ListeningCounter mock failed: %v", err)
+	counter, err := s.ListeningCounter(ctx, 12345)
+	if err != nil || counter["count"] == nil {
+		t.Fatalf("ListeningCounter failed: %v", err)
 	}
 
 	// ListeningCounterMany
-	counts, err := s.ListeningCounterMany(ctx, []int64{1, 2})
-	// Will fail against mock server URL unless tested via direct client or URL override
-	if err == nil && len(counts) > 0 {
-		t.Logf("ListeningCounterMany returned: %v", counts)
+	counterMany, err := s.ListeningCounterMany(ctx, []int64{123, 456})
+	if err != nil || len(counterMany) != 2 {
+		t.Fatalf("ListeningCounterMany failed: %v", err)
 	}
+
+	// Test with default (zero) limits
+	_, _ = s.TopWorldTracks(ctx, 0, 0)
+	_, _ = s.TopCountryTracks(ctx, "US", 0, 0)
+	_, _ = s.TopCityTracks(ctx, "US", "New York", 0, 0)
+	_, _ = s.TopWorldGenreTracks(ctx, models.GenreRock, 0, 0)
+	_, _ = s.TopCountryGenreTracks(ctx, "US", models.GenrePop, 0, 0)
+	_, _ = s.ArtistAbout(ctx, 123, nil)
+	_, _ = s.ArtistAlbums(ctx, 123, 0, 0)
+	_, _ = s.RelatedTracks(ctx, 12345, 0, 0)
+	_, _ = s.SearchArtist(ctx, "Artist", 0, 0)
+	_, _ = s.SearchTrack(ctx, "Track", 0, 0)
+
+	// Valid WAV bytes and reader recognition
+	wavBytes := createSimpleWAV(2048)
+	_, _ = s.RecognizeBytes(ctx, wavBytes)
+	_, _ = s.RecognizeReader(ctx, bytes.NewReader(wavBytes))
+	_, _ = s.Recognize(ctx, wavBytes)
+	_, _ = s.Recognize(ctx, bytes.NewReader(wavBytes))
 
 	// GetYouTubeData
 	yt, err := s.GetYouTubeData(ctx, server.URL+"/youtube")
-	if err != nil || yt.Caption != "Official Video" {
-		t.Errorf("GetYouTubeData failed: %v, got %+v", err, yt)
+	if err != nil || yt.Caption != "Music Video" {
+		t.Fatalf("GetYouTubeData failed: %v", err)
 	}
 }
 
@@ -193,12 +381,18 @@ func TestShazamSerializeAll(t *testing.T) {
 	if err != nil || track.Title != "Song" {
 		t.Fatalf("ser.Track failed: %v", err)
 	}
+	if _, err := ser.Track([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid track JSON")
+	}
 
 	// FullTrack
 	fullTrackJSON := []byte(`{"tagid": "abc", "track": {"key": "123", "title": "Song"}}`)
 	fullTrack, err := ser.FullTrack(fullTrackJSON)
 	if err != nil || fullTrack.TagID != "abc" {
 		t.Fatalf("ser.FullTrack failed: %v", err)
+	}
+	if _, err := ser.FullTrack([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid full track JSON")
 	}
 
 	// Playlist
@@ -207,12 +401,18 @@ func TestShazamSerializeAll(t *testing.T) {
 	if err != nil || pl.ID != "pl1" {
 		t.Fatalf("ser.Playlist failed: %v", err)
 	}
+	if _, err := ser.Playlist([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid playlist JSON")
+	}
 
 	// Playlists
 	playlistsJSON := []byte(`{"data": [{"id": "pl1", "type": "songs", "attributes": {"name": "Song 1", "albumName": "Album 1", "genreNames": ["Pop"], "isrc": "US123", "artwork": {"hasP3": false}, "audioLocale": "en", "url": "https://example.com", "artistName": "Artist 1"}}]}`)
 	pls, err := ser.Playlists(playlistsJSON)
 	if err != nil || len(pls.Data) != 1 {
 		t.Fatalf("ser.Playlists failed: %v", err)
+	}
+	if _, err := ser.Playlists([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid playlists JSON")
 	}
 
 	// ArtistV2
@@ -221,12 +421,18 @@ func TestShazamSerializeAll(t *testing.T) {
 	if err != nil || len(artist.Data) != 1 {
 		t.Fatalf("ser.ArtistV2 failed: %v", err)
 	}
+	if _, err := ser.ArtistV2([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid artist JSON")
+	}
 
 	// ArtistAlbums
 	albumsJSON := []byte(`{"data": [{"id": "alb-1", "type": "albums", "attributes": {"name": "Album 1", "copyright": "2024", "genreNames": ["Pop"], "releaseDate": "2024-01-01", "isMasteredForItunes": true, "upc": "123", "artwork": {"hasP3": false}, "playParams": {"id": "1", "kind": "album"}, "url": "https://example.com", "recordLabel": "Label", "trackCount": 10, "isCompilation": false, "isPrerelease": false, "audioTraits": [], "isSingle": false, "artistName": "Artist 1", "isComplete": true}}]}`)
 	albums, err := ser.ArtistAlbums(albumsJSON)
 	if err != nil || len(albums.Data) != 1 {
 		t.Fatalf("ser.ArtistAlbums failed: %v", err)
+	}
+	if _, err := ser.ArtistAlbums([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid artist albums JSON")
 	}
 
 	// AlbumInfo
@@ -235,12 +441,18 @@ func TestShazamSerializeAll(t *testing.T) {
 	if err != nil || len(albumInfo.Data) != 1 {
 		t.Fatalf("ser.AlbumInfo failed: %v", err)
 	}
+	if _, err := ser.AlbumInfo([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid album info JSON")
+	}
 
 	// YouTube
 	ytJSON := []byte(`{"caption": "Music Video", "uri": "https://youtube.com/123"}`)
 	yt, err := ser.YouTube(ytJSON)
 	if err != nil || yt.Caption != "Music Video" {
 		t.Fatalf("ser.YouTube failed: %v", err)
+	}
+	if _, err := ser.YouTube([]byte(`{invalid}`)); err == nil {
+		t.Errorf("expected error for invalid youtube JSON")
 	}
 }
 
@@ -274,6 +486,12 @@ func TestShazamPolymorphicRecognize(t *testing.T) {
 		t.Errorf("expected 0 matches for empty sig, got %d", len(res.Matches))
 	}
 
+	// Nil DecodedMessage
+	res, err = s.RecognizeSignature(ctx, nil)
+	if err != nil || len(res.Matches) != 0 {
+		t.Errorf("expected empty matches for nil signature")
+	}
+
 	// Reader input with empty bytes
 	res, err = s.Recognize(ctx, bytes.NewReader([]byte{}))
 	if err == nil && len(res.Matches) != 0 {
@@ -284,6 +502,12 @@ func TestShazamPolymorphicRecognize(t *testing.T) {
 	res, err = s.Recognize(ctx, []byte{})
 	if err == nil && len(res.Matches) != 0 {
 		t.Errorf("expected empty matches")
+	}
+
+	// Polymorphic Recognize on file path string
+	_, err = s.Recognize(ctx, "non_existent_file.mp3")
+	if err == nil {
+		t.Errorf("expected error for non-existent file path")
 	}
 }
 

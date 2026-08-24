@@ -16,6 +16,16 @@ import (
 
 var version = "0.8.0"
 
+var clientFactory = func(language, country, proxy string) *goshazam.Shazam {
+	var opts []goshazam.Option
+	opts = append(opts, goshazam.WithLanguage(language))
+	opts = append(opts, goshazam.WithEndpointCountry(country))
+	if proxy != "" {
+		opts = append(opts, goshazam.WithProxy(proxy))
+	}
+	return goshazam.New(opts...)
+}
+
 func newRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "goshazam",
@@ -35,23 +45,13 @@ func newRootCommand() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&country, "country", "GB", "Catalog country code (e.g. US, GB)")
 	rootCmd.PersistentFlags().StringVar(&proxy, "proxy", "", "HTTP/HTTPS/SOCKS5 proxy URL")
 
-	newClient := func() *goshazam.Shazam {
-		var opts []goshazam.Option
-		opts = append(opts, goshazam.WithLanguage(language))
-		opts = append(opts, goshazam.WithEndpointCountry(country))
-		if proxy != "" {
-			opts = append(opts, goshazam.WithProxy(proxy))
-		}
-		return goshazam.New(opts...)
-	}
-
 	recognizeCmd := &cobra.Command{
 		Use:   "recognize <audio-file>",
 		Short: "Recognize music from an audio file (WAV, MP3, OGG, FLAC, M4A, etc.)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]
-			client := newClient()
+			client := clientFactory(language, country, proxy)
 			ctx := cmd.Context()
 
 			res, err := client.RecognizeFile(ctx, filePath)
@@ -60,33 +60,33 @@ func newRootCommand() *cobra.Command {
 			}
 
 			if jsonOutput {
-				enc := json.NewEncoder(os.Stdout)
+				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				return enc.Encode(res)
 			}
 
 			if len(res.Matches) == 0 || res.Track == nil {
-				fmt.Println("No matches found.")
+				fmt.Fprintln(cmd.OutOrStdout(), "No matches found.")
 				return nil
 			}
 
 			track := res.Track
-			fmt.Printf("Track:       %s\n", track.Title)
-			fmt.Printf("Artist:      %s\n", track.Subtitle)
-			fmt.Printf("Shazam Key:  %s\n", track.Key)
+			fmt.Fprintf(cmd.OutOrStdout(), "Track:       %s\n", track.Title)
+			fmt.Fprintf(cmd.OutOrStdout(), "Artist:      %s\n", track.Subtitle)
+			fmt.Fprintf(cmd.OutOrStdout(), "Shazam Key:  %s\n", track.Key)
 			if track.PhotoURL != "" {
-				fmt.Printf("Cover Art:   %s\n", track.PhotoURL)
+				fmt.Fprintf(cmd.OutOrStdout(), "Cover Art:   %s\n", track.PhotoURL)
 			}
 			if track.AppleMusicURL != "" {
-				fmt.Printf("Apple Music: %s\n", track.AppleMusicURL)
+				fmt.Fprintf(cmd.OutOrStdout(), "Apple Music: %s\n", track.AppleMusicURL)
 			}
 			if track.SpotifyURL != "" {
-				fmt.Printf("Spotify:     %s\n", track.SpotifyURL)
+				fmt.Fprintf(cmd.OutOrStdout(), "Spotify:     %s\n", track.SpotifyURL)
 			}
 			if track.YouTubeLink != "" {
-				fmt.Printf("YouTube:     %s\n", track.YouTubeLink)
+				fmt.Fprintf(cmd.OutOrStdout(), "YouTube:     %s\n", track.YouTubeLink)
 			}
-			fmt.Printf("Matches:     %d\n", len(res.Matches))
+			fmt.Fprintf(cmd.OutOrStdout(), "Matches:     %d\n", len(res.Matches))
 			return nil
 		},
 	}
@@ -117,12 +117,12 @@ func newRootCommand() *cobra.Command {
 					"number_samples": sig.NumberSamples,
 					"peaks":          sig.TotalPeaks(),
 				}
-				enc := json.NewEncoder(os.Stdout)
+				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				return enc.Encode(out)
 			}
 
-			fmt.Println(sig.EncodeToURI())
+			fmt.Fprintln(cmd.OutOrStdout(), sig.EncodeToURI())
 			return nil
 		},
 	}
@@ -137,7 +137,7 @@ func newRootCommand() *cobra.Command {
 				return fmt.Errorf("invalid track ID %q: %w", args[0], err)
 			}
 
-			client := newClient()
+			client := clientFactory(language, country, proxy)
 			ctx := cmd.Context()
 
 			related, err := client.RelatedTracks(ctx, trackID, 10, 0)
@@ -174,16 +174,16 @@ func newRootCommand() *cobra.Command {
 		Short:        "Upgrade goshazam CLI binary to the latest released version",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("Checking for newer goshazam release (current version: %s)...\n", version)
+			fmt.Fprintf(cmd.OutOrStdout(), "Checking for newer goshazam release (current version: %s)...\n", version)
 			latestVer, err := godeps.UpgradeSelf(cmd.Context(), "alexgorbatchev", "goshazam", version)
 			if err != nil {
 				if strings.Contains(err.Error(), "already at the latest version") {
-					fmt.Printf("goshazam is already up to date (version %s).\n", version)
+					fmt.Fprintf(cmd.OutOrStdout(), "goshazam is already up to date (version %s).\n", version)
 					return nil
 				}
 				return fmt.Errorf("upgrade failed: %w", err)
 			}
-			fmt.Printf("Successfully upgraded goshazam to version %s!\n", latestVer)
+			fmt.Fprintf(cmd.OutOrStdout(), "Successfully upgraded goshazam to version %s!\n", latestVer)
 			return nil
 		},
 	}

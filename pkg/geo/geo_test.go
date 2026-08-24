@@ -97,7 +97,56 @@ func TestGeoService(t *testing.T) {
 	if _, err := geo.GetCityPlaylist(ctx, "US", "Atlantis"); err == nil {
 		t.Errorf("expected error for non-existent city")
 	}
+	if _, err := geo.GetCityPlaylist(ctx, "ZZ", "Atlantis"); err == nil {
+		t.Errorf("expected error for non-existent country in GetCityPlaylist")
+	}
 	if _, err := geo.GetGenre(ctx, models.GenreMusic("nonexistent")); err == nil {
 		t.Errorf("expected error for non-existent genre")
+	}
+	if _, err := geo.GetGenreFromCountry(ctx, "ZZ", models.GenrePop); err == nil {
+		t.Errorf("expected error for non-existent country in GetGenreFromCountry")
+	}
+	if _, err := geo.GetGenreFromCountry(ctx, "US", models.GenreMusic("nonexistent")); err == nil {
+		t.Errorf("expected error for non-existent genre in country")
+	}
+
+	// Test missing top in global
+	emptyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"countries": [], "global": {}}`))
+	}))
+	defer emptyServer.Close()
+
+	geoEmpty := NewGeoService(client.NewHTTPClient(client.WithHTTPClient(emptyServer.Client())))
+	geoEmpty.SetLocationsURL(emptyServer.URL)
+	if _, err := geoEmpty.GetTop(ctx); err == nil {
+		t.Errorf("expected error when top playlist id is missing")
+	}
+
+	// Test FetchLocations error
+	errorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer errorServer.Close()
+
+	geoError := NewGeoService(client.NewHTTPClient(
+		client.WithHTTPClient(errorServer.Client()),
+		client.WithRetryConfig(client.RetryConfig{MaxAttempts: 1}),
+	))
+	geoError.SetLocationsURL(errorServer.URL)
+	if _, err := geoError.GetTop(ctx); err == nil {
+		t.Errorf("expected error on failed network fetch in GetTop")
+	}
+	if _, err := geoError.GetCountryPlaylist(ctx, "US"); err == nil {
+		t.Errorf("expected error on failed network fetch in GetCountryPlaylist")
+	}
+	if _, err := geoError.GetCityPlaylist(ctx, "US", "NYC"); err == nil {
+		t.Errorf("expected error on failed network fetch in GetCityPlaylist")
+	}
+	if _, err := geoError.GetGenre(ctx, models.GenreRock); err == nil {
+		t.Errorf("expected error on failed network fetch in GetGenre")
+	}
+	if _, err := geoError.GetGenreFromCountry(ctx, "US", models.GenrePop); err == nil {
+		t.Errorf("expected error on failed network fetch in GetGenreFromCountry")
 	}
 }
