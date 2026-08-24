@@ -3,6 +3,7 @@
 
 # Binaries
 bin/
+dist/
 *.exe
 *.dll
 *.so
