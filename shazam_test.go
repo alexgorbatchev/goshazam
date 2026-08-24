@@ -457,7 +457,14 @@ func TestShazamSerializeAll(t *testing.T) {
 }
 
 func TestShazamPolymorphicRecognize(t *testing.T) {
-	s := New()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"matches": []}`))
+	}))
+	defer server.Close()
+
+	c := client.NewHTTPClient(client.WithHTTPClient(server.Client()))
+	s := New(WithHTTPClient(c), WithDiscoveryURL(server.URL))
 	ctx := context.Background()
 
 	// Unsupported type
