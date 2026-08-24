@@ -214,6 +214,9 @@ just build
 # Find related tracks
 ./bin/goshazam related 53982678
 
+# Self-upgrade binary to the latest GitHub release
+./bin/goshazam upgrade
+
 # Check version
 ./bin/goshazam --version
 ```

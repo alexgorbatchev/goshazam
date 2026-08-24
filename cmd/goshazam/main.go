@@ -1,12 +1,13 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
+	"github.com/alexgorbatchev/godeps"
 	"github.com/spf13/cobra"
 
 	"github.com/alexgorbatchev/goshazam"
@@ -15,7 +16,7 @@ import (
 
 const version = "0.8.0"
 
-func main() {
+func newRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "goshazam",
 		Short: "goshazam is a fast Go library and CLI for Shazam music recognition",
@@ -51,7 +52,7 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]
 			client := newClient()
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			res, err := client.RecognizeFile(ctx, filePath)
 			if err != nil {
@@ -96,7 +97,7 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			seg, err := audio.DecodeAudioFile(ctx, filePath)
 			if err != nil {
@@ -137,7 +138,7 @@ func main() {
 			}
 
 			client := newClient()
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			related, err := client.RelatedTracks(ctx, trackID, 10, 0)
 			if err != nil {
@@ -150,9 +151,32 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(recognizeCmd, signatureCmd, relatedCmd)
+	upgradeCmd := &cobra.Command{
+		Use:          "upgrade",
+		Aliases:      []string{"self-update", "update-self"},
+		Short:        "Upgrade goshazam CLI binary to the latest released version",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Printf("Checking for newer goshazam release (current version: %s)...\n", version)
+			latestVer, err := godeps.UpgradeSelf(cmd.Context(), "alexgorbatchev", "goshazam", version)
+			if err != nil {
+				if strings.Contains(err.Error(), "already at the latest version") {
+					fmt.Printf("goshazam is already up to date (version %s).\n", version)
+					return nil
+				}
+				return fmt.Errorf("upgrade failed: %w", err)
+			}
+			fmt.Printf("Successfully upgraded goshazam to version %s!\n", latestVer)
+			return nil
+		},
+	}
 
-	if err := rootCmd.Execute(); err != nil {
+	rootCmd.AddCommand(recognizeCmd, signatureCmd, relatedCmd, upgradeCmd)
+	return rootCmd
+}
+
+func main() {
+	if err := newRootCommand().Execute(); err != nil {
 		os.Exit(1)
 	}
 }
