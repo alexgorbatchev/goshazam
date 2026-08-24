@@ -1,49 +1,55 @@
 # goshazam
 
-A fast, idiomatic, asynchronous-friendly Go library and CLI for the reverse-engineered **Shazam API** and audio fingerprinting algorithm.
+[![Go Reference](https://pkg.go.dev/badge/github.com/alexgorbatchev/goshazam.svg)](https://pkg.go.dev/github.com/alexgorbatchev/goshazam)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alexgorbatchev/goshazam)](https://goreportcard.com/report/github.com/alexgorbatchev/goshazam)
 
-`goshazam` includes a **pure Go** implementation of Shazam's audio fingerprinting algorithm (Cooley-Tukey Radix-2 FFT, Hanning windowing, frequency/time-domain peak spreading, peak recognition, and binary/URI signature serialization) with **zero CGo dependencies**.
+A pure Go port of [ShazamIO](https://github.com/dotX12/ShazamIO), the framework for the reverse-engineered **Shazam API** and audio fingerprinting algorithm.
+
+- **100% Pure Go DSP**: Zero CGO, zero external audio processing dependencies.
+- **Audio Recognition**: Identify songs from files (`.mp3`, `.ogg`, `.wav`, `.flac`, `.m4a`, etc.), in-memory audio bytes, `io.Reader` streams, or raw PCM.
+- **Pure Go Fingerprinting**: Built-in Cooley-Tukey Radix-2 Real FFT, Hanning windowing, frequency/time-domain peak spreading, parabolic interpolation, and binary/URI signature serialization with CRC-32 IEEE verification.
+- **Full Shazam Catalog APIs**: Top charts (world, country, city, genre), artist profiles, album views, related song recommendations, and listening counters.
+- **Resilient HTTP Client**: Automatic exponential backoff retries (429, 500, 502, 503, 504), User-Agent rotation, proxy support, and transparent decompression.
+- **Includes `goshazam` CLI**: Full-featured command-line utility with self-upgrade capabilities.
 
 > [!NOTE]
 > This library is a Go port of the Python library [ShazamIO](https://github.com/dotX12/ShazamIO) by [dotX12](https://github.com/dotX12).
->
-> **Versioning Policy**: `goshazam` follows a coordinated versioning scheme where `MAJOR.MINOR` matches upstream `ShazamIO` (e.g. `0.8.x`), and `PATCH` tracks releases/fixes within this Go port (e.g. `0.8.0`, `0.8.1`).
-
----
-
-## Features
-
-- **Audio Recognition**: Identify songs from files (`.mp3`, `.ogg`, `.wav`, `.flac`, `.m4a`, etc.), in-memory audio bytes, `io.Reader` streams, or raw PCM.
-- **Pure Go DSP & Fingerprinting**:
-  - FFT power spectrum analysis (2048-sample window, 128 stride, Hanning window).
-  - Peak spreading across frequency and time domains.
-  - Parabolic peak interpolation and band grouping.
-  - Binary signature encoding and decoding with CRC-32 IEEE verification.
-  - Standard Shazam Data URI formatting (`data:audio/vnd.shazam.sig;base64,...`).
-- **Shazam Discovery & Catalog APIs**:
-  - Top world charts, country charts, city charts, and genre-specific charts.
-  - Track metadata, artist profiles, albums, and related track recommendations.
-  - Track listening counter statistics.
-- **HTTP Client**:
-  - Configurable exponential backoff retry policy (429, 500, 502, 503, 504).
-  - User-Agent pool rotation.
-  - Proxy support (HTTP, HTTPS, SOCKS5).
-  - Full `context.Context` cancellation and timeout support.
-- **CLI Utility**: Built with Cobra for quick command-line recognition and signature generation.
 
 ---
 
 ## Installation
 
+### Go Library
+
 ```bash
 go get github.com/alexgorbatchev/goshazam
 ```
 
+### `goshazam` CLI
+
+#### Pre-built Binaries (GitHub Releases)
+
+Download pre-built binaries for macOS (Darwin), Linux, or Windows (amd64 / arm64) directly from the [GitHub Releases](https://github.com/alexgorbatchev/goshazam/releases) page:
+
+```bash
+# Using GitHub CLI
+gh release download -R alexgorbatchev/goshazam --pattern "*darwin_arm64.tar.gz"
+
+# Or install / update via Go toolchain
+go install github.com/alexgorbatchev/goshazam/cmd/goshazam@latest
+```
+
+Once installed, `goshazam` can also self-upgrade to the latest release in-place:
+
+```bash
+goshazam upgrade
+```
+
 ---
 
-## Quickstart
+## Library Usage
 
-### 1. Song Recognition
+### 1. Recognizing a Song from Audio
 
 ```go
 package main
@@ -60,7 +66,7 @@ func main() {
 	client := goshazam.New()
 	ctx := context.Background()
 
-	// Recognize from an audio file
+	// Recognize from an audio file (MP3, OGG, WAV, FLAC, M4A, etc.)
 	result, err := client.Recognize(ctx, "path/to/song.mp3")
 	if err != nil {
 		log.Fatalf("recognition failed: %v", err)
@@ -80,7 +86,7 @@ func main() {
 }
 ```
 
-### 2. Generate a Shazam Signature
+### 2. Generating a Shazam Signature
 
 ```go
 package main
@@ -109,12 +115,12 @@ func main() {
 		log.Fatal("audio too short for signature")
 	}
 
-	// Output Data URI string
+	// Output Data URI string: "data:audio/vnd.shazam.sig;base64,..."
 	fmt.Println(sig.EncodeToURI())
 }
 ```
 
-### 3. Decode an Existing Signature URI
+### 3. Decoding an Existing Signature URI
 
 ```go
 package main
@@ -139,7 +145,7 @@ func main() {
 }
 ```
 
-### 4. Fetching Top Charts
+### 4. Fetching Top Charts & Related Tracks
 
 ```go
 package main
@@ -173,12 +179,17 @@ func main() {
 		log.Fatal(err)
 	}
 	_ = topPop
+
+	// Similar / related songs based on track ID
+	related, err := client.RelatedTracks(ctx, 53982678, 5, 0)
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = related
 }
 ```
 
----
-
-## Client Configuration Options
+### 5. Client Configuration Options
 
 ```go
 client := goshazam.New(
@@ -186,74 +197,62 @@ client := goshazam.New(
 	goshazam.WithEndpointCountry("FR"),             // Apple Music / Shazam catalog region
 	goshazam.WithTimeZone("Europe/Paris"),          // Timezone in search payload
 	goshazam.WithTimeout(15 * time.Second),         // Request timeout
-	goshazam.WithProxy("socks5://127.0.0.1:9050"),  // Proxy URL
+	goshazam.WithProxy("socks5://127.0.0.1:9050"),  // HTTP/HTTPS/SOCKS5 proxy URL
 	goshazam.WithUserAgent("CustomUserAgent/1.0"),  // Custom User-Agent
 )
 ```
 
 ---
 
-## CLI Usage
+## `goshazam` CLI
 
-### Download Pre-built Binary
-
-Download pre-compiled binaries for macOS, Linux, and Windows (ARM64 & AMD64) from the [GitHub Releases](https://github.com/alexgorbatchev/goshazam/releases/latest) page, or via `gh`:
-
-```bash
-# Download binary for your platform via GitHub CLI
-gh release download --repo alexgorbatchev/goshazam --pattern "*darwin_arm64.tar.gz"
-tar -xzf goshazam_*_darwin_arm64.tar.gz
-mv goshazam /usr/local/bin/
-```
-
-Or build from source:
-```bash
-just build
-# Binary created at bin/goshazam
-```
-
-### Commands
+`goshazam` is a command-line tool supporting song recognition, signature extraction, track lookups, and automatic self-updates:
 
 ```bash
 # Recognize music from a file
-./bin/goshazam recognize song.mp3
+goshazam recognize song.mp3
 
-# Output JSON format
-./bin/goshazam recognize --json song.ogg
+# Output structured JSON
+goshazam recognize --json song.ogg
 
 # Generate signature data URI
-./bin/goshazam signature song.mp3
+goshazam signature song.mp3
 
 # Find related tracks
-./bin/goshazam related 53982678
+goshazam related 53982678
 
-# Self-upgrade binary to the latest GitHub release
-./bin/goshazam upgrade
+# Self-upgrade to the latest GitHub release
+goshazam upgrade
 
 # Check version
-./bin/goshazam --version
+goshazam --version
 ```
+
+---
+
+## Versioning Policy
+
+`goshazam` version numbers follow SemVer with upstream synchronization:
+
+- **`Major.Minor`** (`0.8.x`): Directly tracks the upstream [ShazamIO](https://github.com/dotX12/ShazamIO) `Major.Minor` release version to ensure algorithm and API parity.
+- **`Patch`** (`0.8.0`, `0.8.1`, ...): Represents the `goshazam` Go library release version for bug fixes, performance optimizations, and pure Go tooling enhancements built against that upstream version baseline.
 
 ---
 
 ## Development
 
+Use `just` to run recipes:
+
 ```bash
-# Run tests
-just test
-
-# Run tests with coverage
-just coverage
-
-# Lint
-just lint
-
-# Tidy dependencies
-just tidy
+just build    # Build bin/goshazam
+just test     # Run all unit tests with race detector
+just coverage # Run tests with coverage summary
+just lint     # Run static code analysis and vet
+just tidy     # Check module hygiene
 ```
 
 ---
 
 ## License
 
-MIT License
+MIT License (compatible with ShazamIO).
