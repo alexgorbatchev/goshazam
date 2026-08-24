@@ -4,6 +4,9 @@ A fast, idiomatic, asynchronous-friendly Go library and CLI for the reverse-engi
 
 `goshazam` includes a **pure Go** implementation of Shazam's audio fingerprinting algorithm (Cooley-Tukey Radix-2 FFT, Hanning windowing, frequency/time-domain peak spreading, peak recognition, and binary/URI signature serialization) with **zero CGo dependencies**.
 
+> [!NOTE]
+> This library is a Go port of the Python library [ShazamIO](https://github.com/dotX12/ShazamIO) by [dotX12](https://github.com/dotX12).
+
 ---
 
 ## Features
