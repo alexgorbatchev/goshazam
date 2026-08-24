@@ -41,10 +41,7 @@ func WithHTTPClient(httpClient *client.HTTPClient) Option {
 // WithStandardHTTPClient provides a custom standard library *http.Client.
 func WithStandardHTTPClient(httpClient *http.Client) Option {
 	return func(s *Shazam) {
-		s.httpClient = client.NewHTTPClient(
-			client.WithHTTPClient(httpClient),
-			client.WithLanguage(s.language),
-		)
+		s.customHTTPClient = httpClient
 	}
 }
 

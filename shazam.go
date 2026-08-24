@@ -20,13 +20,14 @@ import (
 
 // Shazam is the main client for Shazam music recognition and catalog exploration.
 type Shazam struct {
-	language        string
-	endpointCountry string
-	timeZone        string
-	proxyURL        string
-	customUA        string
-	timeout         time.Duration
-	discoveryURL    string
+	language         string
+	endpointCountry  string
+	timeZone         string
+	proxyURL         string
+	customUA         string
+	timeout          time.Duration
+	discoveryURL     string
+	customHTTPClient *http.Client
 
 	httpClient *client.HTTPClient
 	geoService *geo.GeoService
@@ -48,6 +49,12 @@ func New(opts ...Option) *Shazam {
 	if s.httpClient == nil {
 		var clientOpts []client.ClientOption
 		clientOpts = append(clientOpts, client.WithLanguage(s.language))
+		if s.customHTTPClient != nil {
+			clientOpts = append(clientOpts, client.WithHTTPClient(s.customHTTPClient))
+		}
+		if s.timeout > 0 {
+			clientOpts = append(clientOpts, client.WithTimeout(s.timeout))
+		}
 		if s.proxyURL != "" {
 			clientOpts = append(clientOpts, client.WithProxy(s.proxyURL))
 		}
@@ -146,7 +153,11 @@ type signaturePayload struct {
 
 // SendRecognizeRequest sends the encoded signature to Shazam's discovery API.
 func (s *Shazam) SendRecognizeRequest(ctx context.Context, sig *signature.DecodedMessage) (*models.ResponseTrack, error) {
-	sampleMS := int(float64(sig.NumberSamples) / float64(sig.SampleRateHz) * 1000.0)
+	sampleRate := sig.SampleRateHz
+	if sampleRate == 0 {
+		sampleRate = 16000
+	}
+	sampleMS := int(float64(sig.NumberSamples) / float64(sampleRate) * 1000.0)
 	payload := recognizePayload{
 		Timezone: s.timeZone,
 		Signature: signaturePayload{
@@ -306,11 +317,14 @@ func (s *Shazam) ArtistAlbums(ctx context.Context, artistID int64, limit, offset
 // SearchAlbum retrieves detailed metadata for an album by its ID.
 func (s *Shazam) SearchAlbum(ctx context.Context, albumID int64) (*models.AlbumModel, error) {
 	targetURL := client.FormatArtistAlbumInfo(s.endpointCountry, albumID)
-	var resp models.AlbumModel
+	var resp models.BaseDataModel[[]models.AlbumModel]
 	if err := s.httpClient.RequestJSON(ctx, http.MethodGet, targetURL, nil, nil, &resp); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("album ID %d not found", albumID)
+	}
+	return &resp.Data[0], nil
 }
 
 // TrackAbout retrieves metadata for a track by its ID.

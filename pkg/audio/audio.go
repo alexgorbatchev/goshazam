@@ -88,25 +88,30 @@ func (s *Segment) Resample(targetSampleRate int) *Segment {
 		return s
 	}
 
-	ratio := float64(s.SampleRate) / float64(targetSampleRate)
-	numOutSamples := int(math.Floor(float64(len(s.Samples)) / ratio))
+	seg := s
+	if seg.Channels > 1 {
+		seg = seg.ToMono()
+	}
+
+	ratio := float64(seg.SampleRate) / float64(targetSampleRate)
+	numOutSamples := int(math.Floor(float64(len(seg.Samples)) / ratio))
 	out := make([]int16, numOutSamples)
 
 	for i := range numOutSamples {
 		srcPos := float64(i) * ratio
 		idx0 := int(srcPos)
 		idx1 := idx0 + 1
-		if idx1 >= len(s.Samples) {
-			idx1 = len(s.Samples) - 1
+		if idx1 >= len(seg.Samples) {
+			idx1 = len(seg.Samples) - 1
 		}
 		frac := srcPos - float64(idx0)
 
-		v0 := float64(s.Samples[idx0])
-		v1 := float64(s.Samples[idx1])
+		v0 := float64(seg.Samples[idx0])
+		v1 := float64(seg.Samples[idx1])
 		out[i] = int16(v0 + frac*(v1-v0))
 	}
 
-	return NewSegment(out, targetSampleRate, s.Channels)
+	return NewSegment(out, targetSampleRate, seg.Channels)
 }
 
 // Normalize prepares audio for Shazam fingerprinting (16000 Hz, mono, 16-bit).

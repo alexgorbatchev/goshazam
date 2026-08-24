@@ -102,6 +102,15 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 	}
 }
 
+// WithTimeout sets the HTTP client request timeout.
+func WithTimeout(timeout time.Duration) ClientOption {
+	return func(c *HTTPClient) {
+		if timeout > 0 {
+			c.client.Timeout = timeout
+		}
+	}
+}
+
 // NewHTTPClient creates a new HTTPClient with options.
 func NewHTTPClient(opts ...ClientOption) *HTTPClient {
 	c := &HTTPClient{
@@ -195,22 +204,40 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 		}
 
 		var reader io.Reader = resp.Body
+		var closer io.Closer
 		contentEncoding := strings.ToLower(resp.Header.Get("Content-Encoding"))
 		if strings.Contains(contentEncoding, "gzip") {
 			gz, err := gzip.NewReader(resp.Body)
-			if err == nil {
-				defer gz.Close()
-				reader = gz
+			if err != nil {
+				_ = resp.Body.Close()
+				lastErr = fmt.Errorf("gzip decompression failed: %w", err)
+				if attempt < maxAttempts {
+					c.backoff(ctx, attempt)
+					continue
+				}
+				return nil, lastErr
 			}
+			closer = gz
+			reader = gz
 		} else if strings.Contains(contentEncoding, "deflate") {
 			zl, err := zlib.NewReader(resp.Body)
-			if err == nil {
-				defer zl.Close()
-				reader = zl
+			if err != nil {
+				_ = resp.Body.Close()
+				lastErr = fmt.Errorf("deflate decompression failed: %w", err)
+				if attempt < maxAttempts {
+					c.backoff(ctx, attempt)
+					continue
+				}
+				return nil, lastErr
 			}
+			closer = zl
+			reader = zl
 		}
 
 		respBody, err := io.ReadAll(reader)
+		if closer != nil {
+			_ = closer.Close()
+		}
 		_ = resp.Body.Close()
 		if err != nil {
 			lastErr = err
@@ -271,8 +298,11 @@ func (c *HTTPClient) backoff(ctx context.Context, attempt int) {
 		d = c.retryConfig.MaxInterval
 	}
 
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(d):
+	case <-timer.C:
 	case <-ctx.Done():
 	}
 }

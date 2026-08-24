@@ -195,7 +195,15 @@ func (t *TrackInfo) UnmarshalJSON(data []byte) error {
 		}
 	}
 
-	if len(t.Hub.Actions) > 1 && t.Hub.Actions[1].URI != nil {
+	for _, act := range t.Hub.Actions {
+		if act.URI != nil && *act.URI != "" {
+			if strings.EqualFold(act.Name, "ringtone") || strings.EqualFold(act.Type, "ringtone") || strings.Contains(*act.URI, "m4r") {
+				t.Ringtone = *act.URI
+				break
+			}
+		}
+	}
+	if t.Ringtone == "" && len(t.Hub.Actions) > 1 && t.Hub.Actions[1].URI != nil {
 		t.Ringtone = *t.Hub.Actions[1].URI
 	}
 
@@ -228,7 +236,15 @@ func cleanQueryURL(rawURL string) string {
 	if err != nil {
 		return rawURL
 	}
-	u.RawQuery = ""
+	// Preserve Apple Music track identifier (?i=...) if present
+	trackID := u.Query().Get("i")
+	if trackID != "" {
+		v := url.Values{}
+		v.Set("i", trackID)
+		u.RawQuery = v.Encode()
+	} else {
+		u.RawQuery = ""
+	}
 	return u.String()
 }
 

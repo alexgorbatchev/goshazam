@@ -14,7 +14,7 @@ import (
 	"github.com/alexgorbatchev/goshazam/pkg/audio"
 )
 
-const version = "0.8.0"
+var version = "0.8.0"
 
 func newRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
@@ -145,9 +145,26 @@ func newRootCommand() *cobra.Command {
 				return err
 			}
 
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(related)
+			if jsonOutput {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(related)
+			}
+
+			if tracks, ok := related["tracks"].([]any); ok && len(tracks) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Found %d related tracks:\n", len(tracks))
+				for i, item := range tracks {
+					if tMap, ok := item.(map[string]any); ok {
+						title, _ := tMap["title"].(string)
+						subtitle, _ := tMap["subtitle"].(string)
+						key, _ := tMap["key"].(string)
+						fmt.Fprintf(cmd.OutOrStdout(), "%d. %s - %s (Key: %s)\n", i+1, title, subtitle, key)
+					}
+				}
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "No related tracks found.")
+			}
+			return nil
 		},
 	}
 

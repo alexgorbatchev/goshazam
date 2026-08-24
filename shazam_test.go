@@ -136,7 +136,7 @@ func TestShazamAPIMethodsMock(t *testing.T) {
 		case "/albums":
 			_, _ = w.Write([]byte(`{"data": [{"id": "alb-1", "type": "albums"}]}`))
 		case "/album-info":
-			_, _ = w.Write([]byte(`{"id": "alb-1", "type": "albums"}`))
+			_, _ = w.Write([]byte(`{"data": [{"id": "alb-1", "type": "albums", "attributes": {"name": "Album 1", "copyright": "2024", "genreNames": ["Pop"], "releaseDate": "2024", "isMasteredForItunes": true, "upc": "1", "artwork": {"hasP3": false}, "playParams": {"id": "1", "kind": "album"}, "url": "https://example.com", "recordLabel": "L", "trackCount": 10, "isCompilation": false, "isPrerelease": false, "audioTraits": [], "isSingle": false, "artistName": "A", "isComplete": true}}]}`))
 		case "/track":
 			_, _ = w.Write([]byte(`{"key": "53982678", "title": "Song Title", "subtitle": "Artist"}`))
 		case "/count":
@@ -307,6 +307,9 @@ func TestShazamOptions(t *testing.T) {
 	}
 	if s.timeZone != "Europe/Paris" {
 		t.Errorf("expected Europe/Paris, got %s", s.timeZone)
+	}
+	if s.timeout != 10*time.Second {
+		t.Errorf("expected 10s timeout, got %v", s.timeout)
 	}
 	if s.GeoService() == nil {
 		t.Errorf("expected non-nil GeoService")

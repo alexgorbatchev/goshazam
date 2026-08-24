@@ -75,6 +75,13 @@ func DecodeWAV(r io.Reader) (*Segment, error) {
 				return nil, fmt.Errorf("%w: skipping chunk %q: %w", ErrInvalidWAV, chunkID, err)
 			}
 		}
+
+		// RIFF chunks are 2-byte aligned; discard padding byte if chunkSize is odd
+		if chunkSize%2 != 0 {
+			if _, err := io.CopyN(io.Discard, r, 1); err != nil && !errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("%w: discarding padding byte: %w", ErrInvalidWAV, err)
+			}
+		}
 	}
 
 	if dataBytes == nil {

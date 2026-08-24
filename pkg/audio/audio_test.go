@@ -61,6 +61,12 @@ func TestDecodeWAV16Bit(t *testing.T) {
 		t.Errorf("expected channels 2, got %d", seg.Channels)
 	}
 
+	// Direct Resample on stereo segment
+	resampled := seg.Resample(16000)
+	if resampled.SampleRate != 16000 || resampled.Channels != 1 {
+		t.Errorf("expected resampled stereo segment to convert to mono 16000Hz, got rate=%d ch=%d", resampled.SampleRate, resampled.Channels)
+	}
+
 	norm := seg.Normalize()
 	if norm.SampleRate != 16000 {
 		t.Errorf("expected normalized sample rate 16000, got %d", norm.SampleRate)
@@ -70,6 +76,49 @@ func TestDecodeWAV16Bit(t *testing.T) {
 	}
 	if math.Abs(norm.DurationSeconds()-1.0) > 0.01 {
 		t.Errorf("expected duration ~1.0s, got %f", norm.DurationSeconds())
+	}
+}
+
+func TestDecodeWAVOddMetadataChunk(t *testing.T) {
+	var buf bytes.Buffer
+	// RIFF header with odd-sized metadata chunk before data
+	dataSize := 100 * 2                       // 100 16-bit samples = 200 bytes
+	chunkSize := 36 + (8 + 15 + 1) + dataSize // with 1 byte pad for 15 byte chunk
+
+	buf.WriteString("RIFF")
+	binary.Write(&buf, binary.LittleEndian, uint32(chunkSize))
+	buf.WriteString("WAVE")
+
+	// fmt chunk
+	buf.WriteString("fmt ")
+	binary.Write(&buf, binary.LittleEndian, uint32(16))
+	binary.Write(&buf, binary.LittleEndian, uint16(1)) // PCM
+	binary.Write(&buf, binary.LittleEndian, uint16(1)) // mono
+	binary.Write(&buf, binary.LittleEndian, uint32(16000))
+	binary.Write(&buf, binary.LittleEndian, uint32(32000))
+	binary.Write(&buf, binary.LittleEndian, uint16(2))
+	binary.Write(&buf, binary.LittleEndian, uint16(16))
+
+	// odd-sized metadata chunk
+	buf.WriteString("INFO")
+	binary.Write(&buf, binary.LittleEndian, uint32(15)) // odd size
+	buf.Write([]byte("odd_metadata_12"))                // 15 bytes
+	buf.WriteByte(0)                                    // 1 byte pad
+
+	// data chunk
+	buf.WriteString("data")
+	binary.Write(&buf, binary.LittleEndian, uint32(dataSize))
+	for range 100 {
+		binary.Write(&buf, binary.LittleEndian, int16(1234))
+	}
+
+	seg, err := DecodeWAVBytes(buf.Bytes())
+	if err != nil {
+		t.Fatalf("DecodeWAV with odd metadata chunk failed: %v", err)
+	}
+
+	if len(seg.Samples) != 100 {
+		t.Errorf("expected 100 samples, got %d", len(seg.Samples))
 	}
 }
 
