@@ -29,7 +29,7 @@ checksum:
   name_template: checksums.txt
 
 release:
-  mode: replace
+  replace_existing_artifacts: true
 
 changelog:
   sort: asc
