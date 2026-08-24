@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,14 +47,49 @@ func TestCLICommands(t *testing.T) {
 	}
 }
 
+func createTestCLIWAV(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	wavPath := filepath.Join(tmpDir, "test.wav")
+
+	var buf bytes.Buffer
+	numSamples := 16000 * 3
+	dataSize := numSamples * 2
+	chunkSize := 36 + dataSize
+
+	buf.WriteString("RIFF")
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(chunkSize))
+	buf.WriteString("WAVE")
+
+	buf.WriteString("fmt ")
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(16))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1)) // PCM
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1)) // mono
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(16000))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(32000))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(2))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(16))
+
+	buf.WriteString("data")
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(dataSize))
+	for range numSamples {
+		_ = binary.Write(&buf, binary.LittleEndian, int16(1000))
+	}
+
+	if err := os.WriteFile(wavPath, buf.Bytes(), 0600); err != nil {
+		t.Fatalf("failed creating test wav: %v", err)
+	}
+	return wavPath
+}
+
 func TestCLISignatureAndRecognize(t *testing.T) {
-	oggPath := filepath.Join("..", "..", "ShazamIO", "examples", "data", "Gloria.ogg")
+	wavPath := createTestCLIWAV(t)
 
 	// Test signature command
 	var sigBuf bytes.Buffer
 	cmdSig := newRootCommand()
 	cmdSig.SetOut(&sigBuf)
-	cmdSig.SetArgs([]string{"signature", oggPath})
+	cmdSig.SetArgs([]string{"signature", wavPath})
 	if err := cmdSig.Execute(); err != nil {
 		t.Fatalf("signature command failed: %v", err)
 	}
@@ -64,7 +101,7 @@ func TestCLISignatureAndRecognize(t *testing.T) {
 	var sigJSONBuf bytes.Buffer
 	cmdSigJSON := newRootCommand()
 	cmdSigJSON.SetOut(&sigJSONBuf)
-	cmdSigJSON.SetArgs([]string{"signature", "--json", oggPath})
+	cmdSigJSON.SetArgs([]string{"signature", "--json", wavPath})
 	if err := cmdSigJSON.Execute(); err != nil {
 		t.Fatalf("signature --json failed: %v", err)
 	}
@@ -138,13 +175,13 @@ func TestCLIRecognizeMock(t *testing.T) {
 	}
 	defer func() { clientFactory = origFactory }()
 
-	oggPath := filepath.Join("..", "..", "ShazamIO", "examples", "data", "Gloria.ogg")
+	wavPath := createTestCLIWAV(t)
 
 	// Test recognize text output
 	var recBuf bytes.Buffer
 	cmd := newRootCommand()
 	cmd.SetOut(&recBuf)
-	cmd.SetArgs([]string{"recognize", oggPath})
+	cmd.SetArgs([]string{"recognize", wavPath})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("recognize failed: %v", err)
 	}
@@ -157,7 +194,7 @@ func TestCLIRecognizeMock(t *testing.T) {
 	var jsonBuf bytes.Buffer
 	cmdJSON := newRootCommand()
 	cmdJSON.SetOut(&jsonBuf)
-	cmdJSON.SetArgs([]string{"recognize", "--json", oggPath})
+	cmdJSON.SetArgs([]string{"recognize", "--json", wavPath})
 	if err := cmdJSON.Execute(); err != nil {
 		t.Fatalf("recognize --json failed: %v", err)
 	}
@@ -180,7 +217,7 @@ func TestCLIRecognizeMock(t *testing.T) {
 	var emptyRecBuf bytes.Buffer
 	cmdEmpty := newRootCommand()
 	cmdEmpty.SetOut(&emptyRecBuf)
-	cmdEmpty.SetArgs([]string{"recognize", oggPath})
+	cmdEmpty.SetArgs([]string{"recognize", wavPath})
 	if err := cmdEmpty.Execute(); err != nil {
 		t.Fatalf("recognize on empty matches failed: %v", err)
 	}
