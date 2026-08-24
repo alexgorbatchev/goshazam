@@ -16,7 +16,7 @@ coverage.txt
 .workspaces/
 
 # IDE / OS
-.codegraph/
+.codegraph
 .DS_Store
 .vscode/
 .idea/
