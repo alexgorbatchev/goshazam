@@ -6,6 +6,8 @@ A fast, idiomatic, asynchronous-friendly Go library and CLI for the reverse-engi
 
 > [!NOTE]
 > This library is a Go port of the Python library [ShazamIO](https://github.com/dotX12/ShazamIO) by [dotX12](https://github.com/dotX12).
+>
+> **Versioning Policy**: `goshazam` follows a coordinated versioning scheme where `MAJOR.MINOR` matches upstream `ShazamIO` (e.g. `0.8.x`), and `PATCH` tracks releases/fixes within this Go port (e.g. `0.8.0`, `0.8.1`).
 
 ---
 

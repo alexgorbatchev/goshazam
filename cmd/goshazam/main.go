@@ -13,7 +13,7 @@ import (
 	"github.com/alexgorbatchev/goshazam/pkg/audio"
 )
 
-const version = "0.1.0"
+const version = "0.8.0"
 
 func main() {
 	rootCmd := &cobra.Command{
