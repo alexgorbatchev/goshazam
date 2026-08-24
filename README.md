@@ -195,11 +195,24 @@ client := goshazam.New(
 
 ## CLI Usage
 
-Build the CLI binary:
+### Download Pre-built Binary
+
+Download pre-compiled binaries for macOS, Linux, and Windows (ARM64 & AMD64) from the [GitHub Releases](https://github.com/alexgorbatchev/goshazam/releases/latest) page, or via `gh`:
+
+```bash
+# Download binary for your platform via GitHub CLI
+gh release download --repo alexgorbatchev/goshazam --pattern "*darwin_arm64.tar.gz"
+tar -xzf goshazam_*_darwin_arm64.tar.gz
+mv goshazam /usr/local/bin/
+```
+
+Or build from source:
 ```bash
 just build
 # Binary created at bin/goshazam
 ```
+
+### Commands
 
 ```bash
 # Recognize music from a file
