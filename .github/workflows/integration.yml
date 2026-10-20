@@ -1,0 +1,30 @@
+name: Live Shazam integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 9 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install audio decoder
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Download pinned recognition fixture
+        run: |
+          mkdir -p .tmp
+          curl --fail --silent --show-error --location https://raw.githubusercontent.com/shazamio/ShazamIO/f94faafdabff9cdec258f3ac024a6402989e9040/examples/data/Gloria.ogg --output .tmp/Gloria.ogg
+          echo '59d59246f8021cd658e25af3f1a4869486e26d8daa61dec29903221ff02116a1  .tmp/Gloria.ogg' | sha256sum --check
+      - name: Verify live Shazam contracts
+        env:
+          SHAZAM_TEST_AUDIO: .tmp/Gloria.ogg
+        run: go test -tags integration -run '^TestShazamLive' -count=1 -timeout=5m -v .

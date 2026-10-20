@@ -139,11 +139,11 @@ func (s *Shazam) RecognizeSignature(ctx context.Context, sig *signature.DecodedM
 }
 
 type recognizePayload struct {
-	Timezone    string             `json:"timezone"`
-	Signature   signaturePayload   `json:"signature"`
-	Timestamp   int64              `json:"timestamp"`
-	Context     map[string]any     `json:"context"`
-	Geolocation map[string]any     `json:"geolocation"`
+	Timezone    string           `json:"timezone"`
+	Signature   signaturePayload `json:"signature"`
+	Timestamp   int64            `json:"timestamp"`
+	Context     map[string]any   `json:"context"`
+	Geolocation map[string]any   `json:"geolocation"`
 }
 
 type signaturePayload struct {
@@ -338,6 +338,7 @@ func (s *Shazam) TrackAbout(ctx context.Context, trackID int64) (*models.TrackIn
 }
 
 // RelatedTracks retrieves similar and related songs based on track ID.
+// An upstream HTTP 204 response returns an empty tracks list without an error.
 func (s *Shazam) RelatedTracks(ctx context.Context, trackID int64, limit, offset int) (map[string]any, error) {
 	if limit <= 0 {
 		limit = 20
@@ -345,6 +346,9 @@ func (s *Shazam) RelatedTracks(ctx context.Context, trackID int64, limit, offset
 	targetURL := client.FormatRelatedSongs(s.language, s.endpointCountry, trackID, limit, offset)
 	var resp map[string]any
 	if err := s.httpClient.RequestJSON(ctx, http.MethodGet, targetURL, nil, nil, &resp); err != nil {
+		if errors.Is(err, models.ErrNoContent) {
+			return map[string]any{"tracks": []any{}}, nil
+		}
 		return nil, err
 	}
 	return resp, nil

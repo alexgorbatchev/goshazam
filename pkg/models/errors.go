@@ -6,6 +6,9 @@ import (
 )
 
 var (
+	// ErrNoContent indicates an HTTP 204 response without a JSON representation.
+	ErrNoContent = errors.New("shazam API returned no content (HTTP 204)")
+
 	// ErrBadCityName is returned when a city is not found in Shazam locations.
 	ErrBadCityName = errors.New("city not found, check city name")
 

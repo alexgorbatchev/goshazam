@@ -148,9 +148,14 @@ func (c *HTTPClient) DefaultHeaders() http.Header {
 
 // Request executes an HTTP request with automatic retries and returns the raw response body.
 func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body []byte, headers http.Header) ([]byte, error) {
+	data, _, err := c.request(ctx, method, targetURL, body, headers)
+	return data, err
+}
+
+func (c *HTTPClient) request(ctx context.Context, method, targetURL string, body []byte, headers http.Header) ([]byte, int, error) {
 	method = strings.ToUpper(method)
 	if method != http.MethodGet && method != http.MethodPost {
-		return nil, models.ErrBadMethod
+		return nil, 0, models.ErrBadMethod
 	}
 
 	var lastErr error
@@ -162,7 +167,7 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		default:
 		}
 
@@ -173,7 +178,7 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 
 		req, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
 		if err != nil {
-			return nil, fmt.Errorf("creating request: %w", err)
+			return nil, 0, fmt.Errorf("creating request: %w", err)
 		}
 
 		// Apply default headers
@@ -200,7 +205,7 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 				c.backoff(ctx, attempt)
 				continue
 			}
-			return nil, fmt.Errorf("request failed: %w", err)
+			return nil, 0, fmt.Errorf("request failed: %w", err)
 		}
 
 		var reader io.Reader = resp.Body
@@ -215,7 +220,7 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 					c.backoff(ctx, attempt)
 					continue
 				}
-				return nil, lastErr
+				return nil, 0, lastErr
 			}
 			closer = gz
 			reader = gz
@@ -228,7 +233,7 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 					c.backoff(ctx, attempt)
 					continue
 				}
-				return nil, lastErr
+				return nil, 0, lastErr
 			}
 			closer = zl
 			reader = zl
@@ -245,7 +250,7 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 				c.backoff(ctx, attempt)
 				continue
 			}
-			return nil, fmt.Errorf("reading response: %w", err)
+			return nil, 0, fmt.Errorf("reading response: %w", err)
 		}
 
 		// Check if status should trigger a retry
@@ -260,27 +265,32 @@ func (c *HTTPClient) Request(ctx context.Context, method, targetURL string, body
 		}
 
 		if resp.StatusCode >= 400 {
-			return nil, &models.APIError{
+			return nil, 0, &models.APIError{
 				StatusCode: resp.StatusCode,
 				Status:     resp.Status,
 				Body:       string(respBody),
 			}
 		}
 
-		return respBody, nil
+		return respBody, resp.StatusCode, nil
 	}
 
 	if lastErr != nil {
-		return nil, lastErr
+		return nil, 0, lastErr
 	}
-	return nil, fmt.Errorf("request failed after %d attempts", maxAttempts)
+	return nil, 0, fmt.Errorf("request failed after %d attempts", maxAttempts)
 }
 
 // RequestJSON executes an HTTP request and decodes the response body into target.
+// HTTP 204 returns models.ErrNoContent without modifying target.
 func (c *HTTPClient) RequestJSON(ctx context.Context, method, targetURL string, body []byte, headers http.Header, target any) error {
-	data, err := c.Request(ctx, method, targetURL, body, headers)
+	data, status, err := c.request(ctx, method, targetURL, body, headers)
 	if err != nil {
 		return err
+	}
+
+	if status == http.StatusNoContent {
+		return models.ErrNoContent
 	}
 
 	if err := json.Unmarshal(data, target); err != nil {
