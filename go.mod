@@ -2,6 +2,9 @@ module github.com/alexgorbatchev/goshazam
 
 go 1.26.2
 
+// Published contents differ from the Go checksum database; use v0.8.1 or later.
+retract v0.8.0
+
 require (
 	github.com/alexgorbatchev/godeps v1.0.0
 	github.com/spf13/cobra v1.10.2
